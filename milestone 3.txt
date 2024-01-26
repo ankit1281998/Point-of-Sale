@@ -1,0 +1,73 @@
+use pos;
+
+CREATE OR REPLACE VIEW v_CustomerNames AS
+SELECT lastName as LN, firstName as FN
+FROM customer
+ORDER BY LN, FN;
+
+
+CREATE OR REPLACE VIEW v_Customers AS
+SELECT C.ID as customer_number, C.firstName as first_name, C.lastName as last_name, C.address1 as street1, C.address2 as street2,ct.city, ct.state, C.zip as zip_code, C.email
+FROM customer C INNER JOIN city ct ON C.zip = ct.zip;
+
+
+CREATE OR REPLACE VIEW v_ProductBuyers AS
+SELECT product.ID AS 'productID',
+product.`name` AS 'productName',
+GROUP_CONCAT(DISTINCT customer.ID," ", customer.firstName," ", customer.lastName ORDER BY customer.ID SEPARATOR ",") AS 'customers'
+FROM product
+LEFT JOIN orderLine ON
+product.ID=orderLine.productID
+LEFT JOIN pos.order ON
+orderLine.orderID=pos.order.`ID`
+LEFT JOIN customer ON
+customer.ID=pos.order.`customerID`
+GROUP BY product.ID, product.`name`;
+
+CREATE OR REPLACE VIEW v_CustomerPurchases AS
+SELECT customer.ID,
+customer.firstName,
+customer.lastName,
+GROUP_CONCAT(DISTINCT product.ID," ", product.`name` ORDER BY product.ID SEPARATOR "|") AS products
+FROM customer
+LEFT JOIN pos.order ON
+customer.ID=pos.order.customerID
+LEFT JOIN orderLine ON
+pos.order.ID=orderLine.orderID
+LEFT JOIN product ON
+orderLine.productID=product.ID
+GROUP BY customer.ID, customer.firstName, customer.lastName;
+
+CREATE TABLE mv_ProductBuyers AS
+SELECT product.ID AS productID,
+product.`name` AS productName,
+GROUP_CONCAT(DISTINCT customer.ID," ", customer.firstName," ", customer.lastName ORDER BY customer.ID SEPARATOR ",") AS customers
+FROM product
+LEFT JOIN orderLine ON
+product.ID=orderLine.productID
+LEFT JOIN pos.order ON
+orderLine.orderID=pos.order.`ID`
+LEFT JOIN customer ON
+customer.ID=pos.order.`customerID`
+GROUP BY product.ID, product.`name`;
+
+CREATE TABLE mv_CustomerPurchases AS
+SELECT customer.ID,
+customer.firstName,
+customer.lastName,
+GROUP_CONCAT(DISTINCT product.ID," ", product.`name` ORDER BY product.ID SEPARATOR "|") AS products
+FROM customer
+LEFT JOIN pos.order ON
+customer.ID=pos.order.customerID
+LEFT JOIN orderLine ON
+pos.order.ID=orderLine.orderID
+LEFT JOIN product ON
+orderLine.productID=product.ID
+GROUP BY customer.ID, customer.firstName, customer.lastName;
+
+
+CREATE INDEX idx_CustomerEmail
+ON customer (email);
+
+CREATE INDEX idx_ProductName
+ON product (name);

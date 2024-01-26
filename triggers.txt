@@ -1,0 +1,164 @@
+use pos;
+call proc_FillUnitPrice;
+call proc_FillOrderTotal;
+
+create or replace table priceChangeLog(
+ID int unsigned auto_increment primary key,
+oldPrice decimal(6,2),
+newPrice decimal(6,2),
+changeTimestamp TIMESTAMP,
+productid int references product(ID)
+) ENGINE=InnoDB;
+
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_after_update_product
+AFTER UPDATE ON product
+FOR EACH ROW
+BEGIN
+IF (OLD.currentPrice <> NEW.currentPrice) THEN
+INSERT INTO priceChangeLog (oldPrice,newPrice,productid) 
+VALUES (OLD.currentPrice,NEW.currentPrice,NEW.ID);
+
+END IF;
+END //
+delimiter ;
+
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_Fill_UnitPrice
+BEFORE UPDATE ON orderLine
+FOR EACH ROW
+BEGIN
+SET NEW.unitPrice = (select currentPrice from product where ID = NEW.productID);
+END //
+delimiter ;
+
+CREATE OR REPLACE TRIGGER trig_before_insert_orderLine
+BEFORE INSERT
+ON orderLine
+FOR EACH ROW
+BEGIN
+    set @availableQty = (select qtyOnHand from product where ID = NEW.productID);
+    IF NEW.quantity IS NULL THEN
+        SET NEW.quantity = 1;
+    END IF;
+    IF NEW.quantity > @availableQty THEN
+        signal sqlstate '45000' set message_text = 'Not enough available';
+    END IF; 
+    set @nowQty = @availableQty - NEW.quantity;
+    update product set qtyOnHand = @nowQty where ID = NEW.productID;
+    set NEW.unitPrice = (select currentPrice from product where ID = NEW.productID);  
+END;
+//
+
+delimiter //
+CREATE OR REPLACE procedure proc_FillMVCustomer(IN custID INT )
+    BEGIN
+        delete from mv_CustomerPurchases where ID = custID;
+        insert into mv_CustomerPurchases
+        (
+            select customer.ID,firstName,lastName,
+            group_concat(
+            distinct orderLine.productID," ",product.name
+            order by orderLine.productID ASC
+            SEPARATOR '|'  
+        ) as products
+    from customer 
+    left join `order` 
+    on customer.ID = `order`.customerID
+    and customer.ID = custID
+    left join orderLine on  `order`.ID = orderLine.orderID
+    left join product on product.ID = orderLine.productID
+    group by customer.ID
+        );
+    END//
+delimiter ;
+
+
+delimiter //
+CREATE OR REPLACE procedure proc_Fillmv_ProductBuyers(IN PrID INT)
+    BEGIN
+        delete from mv_ProductBuyers where productID = PrID;
+        insert into mv_ProductBuyers
+        (
+            select p.ID as productID, `name` as productName,
+            group_concat(
+            distinct o.customerID," ",c.firstName,
+            " ",c.lastName
+            order by o.customerID ASC
+            SEPARATOR ','  
+            ) as customers from product p
+            left join
+            orderLine ol
+            on p.ID = ol.productID
+            and p.Id = PrID
+            left join
+            `order` o on
+            ol.orderID = o.ID
+            left join 
+            customer c on
+            o.customerID  = c.ID
+            group by productID
+        );
+    END//
+delimiter ;
+
+delimiter //
+CREATE OR REPLACE TRIGGER trig_after_insert_orderLine
+AFTER INSERT
+ON orderLine FOR EACH ROW
+BEGIN 
+    call proc_Fill_Order_Total(NEW.orderID);
+    call proc_Fillmv_ProductBuyers(NEW.productID);
+    set @cid =  (select customerId from `order` where ID = new.orderID);
+    call proc_FillMVCustomer(@cid);
+END//
+delimiter ;
+
+
+delimiter //
+CREATE OR REPLACE TRIGGER trig_after_update_orderLine
+AFTER UPDATE
+ON orderLine
+FOR EACH ROW
+BEGIN 
+    IF OLD.orderID = NEW.orderID and OLD.productID = NEW.productID THEN
+        call  proc_Fill_Order_Total(OLD.orderID);
+    ELSEIF OLD.orderID = NEW.orderID and OLD.productID <> NEW.productID THEN
+        call proc_Fill_Order_Total(OLD.orderID); 
+        call proc_Fillmv_ProductBuyers(OLD.productID);
+        call proc_Fillmv_ProductBuyers(NEW.productID);
+        set @cid =  (select customerID from `order` where ID = NEW.orderID);
+        call proc_FillMVCustomer(@cid);
+    ELSEIF OLD.orderID <> NEW.orderId and OLD.productID = NEW.productID THEN
+        call proc_Fill_Order_Total(OLD.orderID);
+        call proc_Fill_Order_Total(NEW.orderID);
+        call proc_Fillmv_ProductBuyers(OLD.productID);
+        set @oldCID =  (select customerID from `order` where ID = OLD.orderID);
+        set @newCID =  (select customerID from `order` where ID = NEW.orderID);
+        IF @oldCID <> @newCID THEN
+            call proc_FillMVCustomer(@oldCID);
+            call proc_FillMVCustomer(@newCID);
+        ELSE 
+            call proc_FillMVCustomer(@oldCID);
+        END IF;
+    END IF;
+END//
+delimiter ;
+
+
+delimiter //
+CREATE OR REPLACE TRIGGER trig_after_delete_orderLine
+AFTER DELETE
+ON orderLine FOR EACH ROW
+BEGIN 
+    call proc_Fill_Order_Total(OLD.orderID);
+    call proc_Fillmv_ProductBuyers(OLD.productID);
+    set @availableQty = (select qtyOnHand from product where ID = OLD.productID);
+    set @nowQty = @availableQty + OLD.quantity;
+    update product set qtyOnHand = @nowQty where ID = OLD.productID; 
+    set @cid =  (select customerID from `order` where ID = OLD.orderID);
+    call proc_FillMVCustomer(@cid);
+END//
+delimiter ;

@@ -1,0 +1,79 @@
+create or replace table priceChangeLog(
+ID int unsigned auto_increment primary key,
+oldPrice decimal(6,2),
+newPrice decimal(6,2),
+changeTimestamp TIMESTAMP,
+productid int references product(ID)
+) ENGINE=InnoDB;
+
+-- 3
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_after_update_product
+AFTER UPDATE ON product
+FOR EACH ROW
+BEGIN
+IF (OLD.currentPrice <> NEW.currentPrice) THEN
+INSERT INTO priceChangeLog (oldPrice,newPrice,productid) 
+VALUES (OLD.currentPrice,NEW.currentPrice,NEW.ID);
+
+END IF;
+END //
+delimiter ;
+
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_Fill_UnitPrice
+BEFORE UPDATE ON orderLine
+FOR EACH ROW
+BEGIN
+SET NEW.unitPrice = (select currentPrice from product where ID = NEW.productID);
+END //
+delimiter ;
+
+
+
+--5
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_after_update_orderLine
+AFTER UPDATE ON orderLine
+FOR EACH ROW
+BEGIN
+SET NEW.orderTotal=(SELECT SUM(lineTotal) from orderLine WHERE `order`.ID=NEW.orderID 
+GROUP BY `order`.ID);
+
+END //
+delimiter ;
+
+
+
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_before_quantity_aspects
+AFTER UPDATE ON orderLine
+FOR EACH ROW
+BEGIN
+IF OLD.quantity IS NULL THEN
+SET NEW.quantity=1 
+
+END IF;
+END//
+delimiter ;
+
+
+DELIMITER //
+CREATE OR REPLACE TRIGGER trig_before_quantity_aspects
+AFTER UPDATE ON orderLine
+FOR EACH ROW
+BEGIN
+IF (NEW.quantity > product.qtyOnHand)
+INSERT INTO  product(qtyOnHand)
+VALUES(NEW.quantity);
+
+ELSEIF (OLD.quantity < NEW.quantity)
+SET NEW.qtyOnHand=OLD.qtyOnHand- orderLine.quantity;
+
+ELSE (orderLines.quantity> product.qtyOnHand)
+
+
+
+

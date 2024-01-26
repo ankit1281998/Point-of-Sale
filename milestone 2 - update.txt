@@ -1,0 +1,156 @@
+drop database if exists pos;
+create database pos;
+use pos;
+
+
+create or replace table t_customer(
+ID int,
+firstname varchar(64),
+lastName varchar(32),
+city varchar(128),
+st varchar(128),
+zip varchar(15),
+address1 varchar(128),
+address2 varchar(128),
+email varchar(128),
+birthDate varchar(15)
+)
+ENGINE=INNODB;
+
+create or replace table t_product(
+ID int primary key,
+name varchar(128),
+currentPrice varchar(15),
+qtyOnHand int
+)
+ENGINE=INNODB;
+
+create or replace table t_orderLine(
+orderID  int,
+productID int
+)
+ENGINE=INNODB;
+
+create or replace table t_order(
+ID int,
+customerID varchar(15)
+)
+ENGINE=INNODB;
+
+create or replace table city(
+zip decimal(5) unsigned zerofill primary key,
+city varchar(32),
+state varchar(4)
+)
+ENGINE=INNODB;
+
+create or replace table customer(
+ID int primary key,
+firstName varchar(64),
+lastName varchar(32),
+email varchar(128),
+address1 varchar(128),
+address2 varchar(128),
+phone varchar(32),
+birthDate date,
+zip decimal(5) unsigned zerofill references city(zip)
+)
+ENGINE=INNODB;
+
+
+create or replace table status(
+status tinyint(4) primary key,
+description varchar(12)
+)
+ENGINE=INNODB;
+
+create or replace table `order`(
+ID int primary key,
+datePlaced date,
+dateShipped date,
+status tinyint(4) references status(status),
+customerID int references customer(ID)
+)
+ENGINE=INNODB;
+
+create or replace table product(
+ID int primary key,
+name varchar(128),
+currentPrice decimal(6,2),
+qtyOnHand int
+)
+ENGINE=INNODB;
+
+
+create or replace table orderLine(
+orderID int references pos.order(ID),
+productID int references product(ID),
+quantity int,
+primary key(orderID,productID)
+)
+ENGINE=INNODB;
+
+ 
+
+
+
+LOAD DATA local INFILE '/home/dgomillion/customers.csv'
+INTO TABLE t_customer
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS
+(ID,firstname,lastName,city,st,zip,address1,address2,email,birthDate);
+
+
+
+
+LOAD DATA local INFILE '/home/dgomillion/orders.csv'
+INTO TABLE t_order
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS
+(ID, customerID);
+
+LOAD DATA local INFILE '/home/dgomillion/orderlines.csv'
+INTO TABLE t_orderLine
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS
+(orderID, productID);
+
+LOAD DATA local INFILE '/home/dgomillion/products.csv'
+INTO TABLE t_product
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS
+(ID, name,currentPrice,qtyOnHand);
+
+INSERT INTO city(zip,city,state)
+SELECT distinct zip,city, st FROM t_customer group by zip;
+
+
+INSERT into customer(ID, firstName, lastName, email, address1, address2, birthDate, zip)
+SELECT ID,firstname, lastName, email, address1, address2, str_to_date(birthDate, '%m/%d/%Y'), cast(zip as decimal(5)) from t_customer;
+
+update customer set address2= NULL where address2='';
+update customer set birthDate = NULL where birthDate = '0000-00-00';
+
+INSERT INTO product (ID, name, currentPrice, qtyOnHand)
+select ID, name, cast(replace(replace(currentPrice,'$',''),',','') as decimal(6,2)), qtyOnhand from t_product;
+
+INSERT into pos.order(ID,customerID) select distinct ID,customerID from t_order group by ID, customerID;
+
+INSERT into orderLine (orderID, productID, quantity)
+select orderID, productID, count(*) from t_orderLine group by orderID, productID;
+
+
+drop table t_orderLine;
+drop table t_order;
+drop table t_customer;
+drop table t_product;
+
+

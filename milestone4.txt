@@ -1,0 +1,78 @@
+use pos;
+
+ALTER TABLE orderLine
+ADD unitPrice DECIMAL(6,2);
+
+
+
+ALTER TABLE orderLine
+ADD lineTotal DECIMAL(7,2) GENERATED ALWAYS AS (quantity * unitPrice);
+
+
+ALTER TABLE pos.order
+ADD orderTotal DECIMAL(8,2);
+
+
+
+ALTER TABLE customer
+DROP COLUMN phone;
+
+SHOW CREATE TABLE `order`;                       
+ALTER TABLE pos.order DROP FOREIGN KEY order_ibfk_1;
+
+ALTER TABLE pos.order
+DROP COLUMN status;
+
+DROP TABLE status; 
+
+
+delimiter //
+CREATE PROCEDURE proc_FillUnitPrice ()
+       BEGIN
+
+         Update orderLine
+         Set orderLine.unitPrice=(select currentPrice  
+         FROM product 
+         WHERE product.ID=orderLine.productID) 
+         WHERE orderLine.unitPrice IS NULL;
+         
+       END//
+delimiter ;
+
+
+
+delimiter //
+CREATE PROCEDURE proc_FillOrderTotal ()
+       BEGIN
+         UPDATE `order`
+         SET orderTotal=(SELECT SUM(lineTotal) from orderLine WHERE `order`.ID=orderLine.orderID 
+         GROUP BY `order`.ID)
+         WHERE orderTotal IS NULL;
+       END//
+delimiter ;
+
+
+
+
+delimiter //
+CREATE PROCEDURE proc_FillMVCustomerPurchases ()
+BEGIN
+UPDATE mv_CustomerPurchases mvcp INNER JOIN (SELECT customer.ID as cid,
+customer.firstName as cfn,
+customer.lastName as cln,
+GROUP_CONCAT(DISTINCT product.ID," ", product.`name` ORDER BY product.ID SEPARATOR "|") AS cproducts
+FROM customer
+LEFT JOIN pos.order ON
+customer.ID=pos.order.customerID
+LEFT JOIN orderLine ON
+pos.order.ID=orderLine.orderID
+LEFT JOIN product ON
+orderLine.productID=product.ID
+GROUP BY customer.ID, customer.firstName, customer.lastName) Pt ON mvcp.ID=Pt.cid
+SET ID=Pt.cid,
+firstName=Pt.cfn,
+lastName=Pt.cln,
+products=Pt.cproducts;
+END//
+
+delimiter ;
